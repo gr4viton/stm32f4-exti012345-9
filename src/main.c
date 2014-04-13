@@ -113,10 +113,11 @@ void INIT_gpio(uint32_t port, enum rcc_periph_clken rcc, uint16_t pin)
 	gpio_mode_setup(port, GPIO_MODE_INPUT, GPIO_PUPD_NONE, pin);
 }
 
-void INIT_isr(uint32_t port, uint32_t exti, uint8_t nvic)
+void INIT_isr(uint32_t port, uint32_t exti, uint8_t irqn)
 {
 	/* Enable exti interrupt. */
-	nvic_enable_irq(nvic);
+	nvic_enable_irq(irqn);
+	nvic_set_priority(irqn,10);
 // exti
 	MINE_exti_select_source(exti, port);
 	exti_set_trigger(exti, EXTI_TRIGGER_BOTH);
@@ -134,14 +135,32 @@ int main(void)
     INIT_leds();
 
     INIT_gpio(GPIOA, RCC_GPIOA, GPIO0);
-    INIT_gpio(GPIOE, RCC_GPIOE, GPIO0);
+    INIT_gpio(GPIOB, RCC_GPIOB, GPIO0|GPIO1|GPIO2|GPIO3|GPIO4|GPIO5|GPIO6|GPIO7|GPIO8|GPIO9);
+    INIT_gpio(GPIOC, RCC_GPIOC, GPIO0|GPIO1|GPIO2|GPIO3|GPIO4|GPIO5|GPIO6|GPIO7|GPIO8|GPIO9);
+    INIT_gpio(GPIOD, RCC_GPIOD, GPIO0|GPIO1|GPIO2|GPIO3|GPIO4|GPIO5|GPIO6|GPIO7|GPIO8|GPIO9);
+    INIT_gpio(GPIOE, RCC_GPIOE, GPIO0|GPIO1|GPIO2|GPIO3|GPIO4|GPIO5|GPIO6|GPIO7|GPIO8|GPIO9);
+    INIT_gpio(GPIOF, RCC_GPIOF, GPIO0|GPIO1|GPIO2|GPIO3|GPIO4|GPIO5|GPIO6|GPIO7|GPIO8|GPIO9);
+    INIT_gpio(GPIOH, RCC_GPIOH, GPIO0|GPIO1|GPIO2|GPIO3|GPIO4|GPIO5|GPIO6|GPIO7|GPIO8|GPIO9);
+    INIT_gpio(GPIOI, RCC_GPIOI, GPIO0|GPIO1|GPIO2|GPIO3|GPIO4|GPIO5|GPIO6|GPIO7|GPIO8|GPIO9);
 
 /*
 //functional
     INIT_isr(GPIOA, EXTI0, NVIC_EXTI0_IRQ);
 */
 //false hope - setting this enables int on PA0
-    INIT_isr(GPIOE, EXTI0, NVIC_EXTI0_IRQ);
+
+// we must firstly set up the clock for setting the exti line
+    rcc_peripheral_enable_clock(&RCC_APB2ENR, RCC_APB2ENR_SYSCFGEN);
+    INIT_isr(GPIOA, EXTI0, NVIC_EXTI0_IRQ);
+    INIT_isr(GPIOH, EXTI1, NVIC_EXTI1_IRQ);
+    INIT_isr(GPIOB, EXTI2, NVIC_EXTI2_IRQ);
+    INIT_isr(GPIOC, EXTI3, NVIC_EXTI3_IRQ);
+    INIT_isr(GPIOD, EXTI4, NVIC_EXTI4_IRQ);
+    INIT_isr(GPIOE, EXTI5, NVIC_EXTI9_5_IRQ);
+    INIT_isr(GPIOB, EXTI6, NVIC_EXTI9_5_IRQ);
+    INIT_isr(GPIOC, EXTI7, NVIC_EXTI9_5_IRQ);
+    INIT_isr(GPIOD, EXTI8, NVIC_EXTI9_5_IRQ);
+    INIT_isr(GPIOE, EXTI9, NVIC_EXTI9_5_IRQ);
 
     //DBG_trySetup();
 
@@ -199,7 +218,7 @@ void DBG_trySetup(void)
         reg = a;
         shift = 4*a;
         mask = 0x0000000F<<shift; // = in EXTICR1 = EXTI0
-        bits = 0x00000004<<shift; // PE in EXTI0 = PE0
+        bits = 0x00000001<<shift; // PE in EXTI0 = PE0
 
         // lpc43xx\memorymap.h PERIPH_BASE
         // Table 2.
