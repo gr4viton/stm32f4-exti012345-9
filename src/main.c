@@ -1,306 +1,330 @@
-/*
- * This file is part of the libopencm3 project.
- *
- * Copyright (C) 2012 Karl Palsson <karlp@tweak.net.au>
- *
- * This library is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Lesser General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * This library is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Lesser General Public License for more details.
- *
- * You should have received a copy of the GNU Lesser General Public License
- * along with this library.  If not, see <http://www.gnu.org/licenses/>.
- */
+/***********
+\project    MRBT - Robotický den 2014
+\author 	xdavid10, xslizj00, xdvora0u @ FEEC-VUTBR
+\filename	.c
+\contacts	Bc. Daniel DAVIDEK	<danieldavidek@gmail.com>
+            Bc. Jiri SLIZ       <xslizj00@stud.feec.vutbr.cz>
+            Bc. Michal Dvorak   <xdvora0u@stud.feec.vutbr.cz>
+\date		2014_03_30
+\brief      This function only choses which of the 3 possible mains would run
 
-#include <errno.h>
-#include <stdio.h>
-#include <unistd.h>
-#include <libopencm3/cm3/nvic.h>
-#include <libopencm3/cm3/scb.h>
-#include <libopencm3/stm32/dbgmcu.h>
-#include <libopencm3/stm32/exti.h>
-#include <libopencm3/stm32/flash.h>
-#include <libopencm3/stm32/gpio.h>
-#include <libopencm3/stm32/pwr.h>
+\descrptn
+    If you look here and hope to find out how this program works,
+    you should look inside headerfiles on function headers to know what they do
+    mainly look inside the robot_config.c and inside the struct S_robot.
+    S_robot is is the core of everything.
+\license    LGPL License Terms \ref lgpl_license
+***********/
+/* DOCSTYLE: gr4viton_2014_A <goo.gl/1deDBa> */
+
+//%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+// INCLUDES
+//_________> project includes
+//#include "main.h"
+// move to headerfile
+#include "defines.h"
+#include "led_f4.h"
+#include "waitin.h"
+
 #include <libopencm3/stm32/rcc.h>
-#include <libopencm3/stm32/rtc.h>
-#include <libopencm3/stm32/timer.h>
-#include <libopencm3/stm32/usart.h>
 
-#include "syscfg.h"
+#include <libopencm3/cm3/nvic.h>
+#include <libopencm3/stm32/memorymap.h>
+#include <libopencm3/stm32/exti.h>
+#include <libopencm3/stm32/gpio.h>
 
-static volatile struct state_t state;
+#include <libopencm3/stm32/syscfg.h>
 
-int _write(int file, char *ptr, int len);
+#define SYSCFG_BASE         (0x40013800U)
 
-static inline __attribute__((always_inline)) void __WFI(void)
+#define MINE_SYSCFG_EXTICR(i)		MMIO32(SYSCFG_BASE + 0x08 + (i)*4)
+//%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+// TYPE DEFINITIONS
+//____________________________________________________
+// enumerations
+//____________________________________________________
+// structs
+//____________________________________________________
+// unions
+//%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+// VARIABLE DEFINITIONS
+//____________________________________________________
+// static variables
+//____________________________________________________
+// other variables
+
+
+//%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+// EXTERNAL VARIABLE DECLARATIONS
+//%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+// INLINE FUNCTION DEFINITIONS - doxygen description should be in HEADERFILE
+//%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+// STATIC FUNCTION DEFINITIONS - doxygen description should be in HEADERFILE
+//%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+// OTHER FUNCTION DEFINITIONS - doxygen description should be in HEADERFILE
+
+
+void DBG_trySetup(void);
+void MINE_exti_select_source(uint32_t exti, uint32_t gpioport);
+void INIT_isr(uint32_t port, uint32_t exti, uint8_t nvic);
+void INIT_gpio(uint32_t port, enum rcc_periph_clken rcc, uint16_t pin);
+
+
+void exti9_5_isr(void)
 {
-	__asm volatile ("wfi");
+    gpio_toggle(PLED, LEDGREEN0);
+	exti_reset_request(EXTI5);
+	exti_reset_request(EXTI6);
+	exti_reset_request(EXTI7);
+	exti_reset_request(EXTI8);
+	exti_reset_request(EXTI9);
 }
 
-static void gpio_setup(void)
+void exti3_isr(void)
 {
-	/* green led for ticking, blue for button feedback */
-	gpio_mode_setup(LED_DISCO_GREEN_PORT, GPIO_MODE_OUTPUT, GPIO_PUPD_NONE,
-			LED_DISCO_GREEN_PIN);
-
-	gpio_mode_setup(LED_DISCO_BLUE_PORT, GPIO_MODE_OUTPUT, GPIO_PUPD_NONE,
-			LED_DISCO_BLUE_PIN);
-
-	/* Setup GPIO pins for USART2 transmit. */
-	gpio_mode_setup(GPIOA, GPIO_MODE_AF, GPIO_PUPD_NONE, GPIO2);
-
-	/* Setup USART2 TX pin as alternate function. */
-	gpio_set_af(GPIOA, GPIO_AF7, GPIO2);
+    gpio_toggle(PLED, LEDGREEN0);
+	exti_reset_request(EXTI3);
 }
 
-void BUTTON_DISCO_USER_isr(void)
+void exti2_isr(void)
 {
-	exti_reset_request(BUTTON_DISCO_USER_EXTI);
-	state.pressed = true;
-	if (state.falling) {
-		state.falling = false;
-		exti_set_trigger(BUTTON_DISCO_USER_EXTI, EXTI_TRIGGER_RISING);
-		state.hold_time = TIM_CNT(TIMER_BUTTON_PRESS);
-	} else {
-		state.falling = true;
-		exti_set_trigger(BUTTON_DISCO_USER_EXTI, EXTI_TRIGGER_FALLING);
-		state.hold_time = TIM_CNT(TIMER_BUTTON_PRESS) = 0;
-	}
+    gpio_toggle(PLED, LEDGREEN0);
+	exti_reset_request(EXTI2);
 }
 
-static void setup_buttons(void)
+void exti1_isr(void)
 {
-	/* Enable EXTI0 interrupt. */
-	nvic_enable_irq(BUTTON_DISCO_USER_NVIC);
-
-	gpio_mode_setup(BUTTON_DISCO_USER_PORT, GPIO_MODE_INPUT, GPIO_PUPD_NONE,
-			BUTTON_DISCO_USER_PIN);
-
-	/* Configure the EXTI subsystem. */
-	exti_select_source(BUTTON_DISCO_USER_EXTI, BUTTON_DISCO_USER_PORT);
-	state.falling = false;
-	exti_set_trigger(BUTTON_DISCO_USER_EXTI, EXTI_TRIGGER_RISING);
-	exti_enable_request(BUTTON_DISCO_USER_EXTI);
+    gpio_toggle(PLED, LEDGREEN0);
+	exti_reset_request(EXTI1);
 }
 
-static void usart_setup(void)
+void exti0_isr(void)
 {
-	usart_set_baudrate(USART_CONSOLE, 115200);
-	usart_set_databits(USART_CONSOLE, 8);
-	usart_set_stopbits(USART_CONSOLE, USART_STOPBITS_1);
-	usart_set_mode(USART_CONSOLE, USART_MODE_TX);
-	usart_set_parity(USART_CONSOLE, USART_PARITY_NONE);
-	usart_set_flow_control(USART_CONSOLE, USART_FLOWCONTROL_NONE);
-
-	/* Finally enable the USART. */
-	usart_enable(USART_CONSOLE);
+    gpio_toggle(PLED, LEDGREEN0);
+	exti_reset_request(EXTI0);
 }
 
-/**
- * Use USART_CONSOLE as a console.
- * @param file
- * @param ptr
- * @param len
- * @return
- */
-int _write(int file, char *ptr, int len)
+void INIT_gpio(uint32_t port, enum rcc_periph_clken rcc, uint16_t pin)
 {
-	int i;
+	/* Enable port clock. */
+	rcc_periph_clock_enable(rcc);
 
-	if (file == STDOUT_FILENO || file == STDERR_FILENO) {
-		for (i = 0; i < len; i++) {
-			if (ptr[i] == '\n') {
-				usart_send_blocking(USART_CONSOLE, '\r');
-			}
-			usart_send_blocking(USART_CONSOLE, ptr[i]);
-		}
-		return i;
-	}
-	errno = EIO;
-	return -1;
+	/* Set pin (in GPIO port [port]) to 'input float'. */
+	gpio_mode_setup(port, GPIO_MODE_INPUT, GPIO_PUPD_NONE, pin);
 }
 
-/*
- * Free running ms timer.
- */
-static void setup_button_press_timer(void)
+void INIT_isr(uint32_t port, uint32_t exti, uint8_t nvic)
 {
-	timer_reset(TIMER_BUTTON_PRESS);
-	timer_set_prescaler(TIMER_BUTTON_PRESS, 3999); /* 4Mhz/1000hz - 1 */
-	timer_set_period(TIMER_BUTTON_PRESS, 0xffff);
-	timer_enable_counter(TIMER_BUTTON_PRESS);
+	/* Enable exti interrupt. */
+	nvic_enable_irq(nvic);
+// exti
+	MINE_exti_select_source(exti, port);
+	exti_set_trigger(exti, EXTI_TRIGGER_BOTH);
+	exti_enable_request(exti);
+
 }
 
-static int setup_rtc(void)
-{
-	/* turn on power block to enable unlocking */
-	rcc_periph_clock_enable(RCC_PWR);
-	pwr_disable_backup_domain_write_protect();
 
-	/* reset rtc */
-	RCC_CSR |= RCC_CSR_RTCRST;
-	RCC_CSR &= ~RCC_CSR_RTCRST;
-
-	/* We want to use the LSE fitted on the discovery board */
-	rcc_osc_on(LSE);
-	rcc_wait_for_osc_ready(LSE);
-
-	/* Select the LSE as rtc clock */
-	rcc_rtc_select_clock(RCC_CSR_RTCSEL_LSE);
-
-	/* ?! Stdperiph examples don't turn this on until _afterwards_ which
-	 * simply doesn't work.  It must be on at least to be able to
-	 * configure it */
-	RCC_CSR |= RCC_CSR_RTCEN;
-
-	rtc_unlock();
-
-	/* enter init mode */
-	RTC_ISR |= RTC_ISR_INIT;
-	while ((RTC_ISR & RTC_ISR_INITF) == 0);
-
-	/* set synch prescaler, using defaults for 1Hz out */
-	uint32_t sync = 255;
-	uint32_t async = 127;
-	rtc_set_prescaler(sync, async);
-
-	/* load time and date here if desired, and hour format */
-
-	/* exit init mode */
-	RTC_ISR &= ~(RTC_ISR_INIT);
-
-	/* and write protect again */
-	rtc_lock();
-
-	/* and finally enable the clock */
-	RCC_CSR |= RCC_CSR_RTCEN;
-
-	/* And wait for synchro.. */
-	rtc_wait_for_synchro();
-	return 0;
-}
-
-static int setup_rtc_wakeup(int period)
-{
-	rtc_unlock();
-
-	/* ensure wakeup timer is off */
-	RTC_CR &= ~RTC_CR_WUTE;
-
-	/* Wait until we can write */
-	while ((RTC_ISR & RTC_ISR_WUTWF) == 0);
-
-	RTC_WUTR = period - 1;
-
-	/* Use the 1Hz clock as source */
-	RTC_CR &= ~(RTC_CR_WUCLKSEL_MASK << RTC_CR_WUCLKSEL_SHIFT);
-	RTC_CR |= (RTC_CR_WUCLKSEL_SPRE << RTC_CR_WUCLKSEL_SHIFT);
-
-	/* Restart WakeUp unit */
-	RTC_CR |= RTC_CR_WUTE;
-
-	/* interrupt configuration */
-
-	/* also, let's have an interrupt */
-	RTC_CR |= RTC_CR_WUTIE;
-
-	/* done with rtc registers, lock them again */
-	rtc_lock();
-
-	nvic_enable_irq(NVIC_RTC_WKUP_IRQ);
-
-	/* EXTI configuration */
-	/* Configure the EXTI subsystem. */
-	/* not needed, this chooses ports
-	   exti_select_source(EXTI20, BUTTON_DISCO_USER_PORT);
-	*/
-	exti_set_trigger(EXTI20, EXTI_TRIGGER_RISING);
-	exti_enable_request(EXTI20);
-	return 0;
-}
-
-void rtc_wkup_isr(void)
-{
-	/* clear flag, not write protected */
-	RTC_ISR &= ~(RTC_ISR_WUTF);
-	exti_reset_request(EXTI20);
-	state.rtc_ticked = true;
-}
-
-static int process_state(volatile struct state_t *st)
-{
-	if (st->rtc_ticked) {
-		st->rtc_ticked = 0;
-		printf("Tick: %x\n", (unsigned int) RTC_TR);
-#if defined(FULL_USER_EXPERIENCE)
-		gpio_toggle(LED_DISCO_GREEN_PORT, LED_DISCO_GREEN_PIN);
-#else
-		gpio_clear(LED_DISCO_GREEN_PORT, LED_DISCO_GREEN_PIN);
-#endif
-	}
-	if (st->pressed) {
-		st->pressed = false;
-		if (st->falling) {
-			gpio_set(LED_DISCO_BLUE_PORT, LED_DISCO_BLUE_PIN);
-			printf("Pushed down!\n");
-		} else {
-			gpio_clear(LED_DISCO_BLUE_PORT, LED_DISCO_BLUE_PIN);
-			printf("held: %u ms\n", st->hold_time);
-		}
-	}
-	return 0;
-}
-
-static void reset_clocks(void)
-{
-	/* 4MHz MSI raw range 2*/
-	clock_scale_t myclock_config = {
-		.hpre = RCC_CFGR_HPRE_SYSCLK_NODIV,
-		.ppre1 = RCC_CFGR_PPRE1_HCLK_NODIV,
-		.ppre2 = RCC_CFGR_PPRE2_HCLK_NODIV,
-		.voltage_scale = RANGE2,
-		.flash_config = FLASH_ACR_LATENCY_0WS,
-		.apb1_frequency = 4194000,
-		.apb2_frequency = 4194000,
-		.msi_range = RCC_ICSCR_MSIRANGE_4MHZ,
-	};
-	rcc_clock_setup_msi(&myclock_config);
-
-	/* buttons and uarts */
-	rcc_periph_clock_enable(RCC_GPIOA);
-	/* user feedback leds */
-	rcc_periph_clock_enable(RCC_GPIOB);
-	/* Enable clocks for USART2. */
-	rcc_periph_clock_enable(RCC_USART2);
-	/* And a timers for button presses */
-	rcc_periph_clock_enable(RCC_TIM7);
-}
-
+//%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 int main(void)
 {
-	reset_clocks();
-	gpio_setup();
-	usart_setup();
-	setup_buttons();
-	setup_button_press_timer();
-	printf("we're awake!\n");
 
-	setup_rtc();
-	setup_rtc_wakeup(1);
+    INIT_clk();
+	//rcc_clock_setup_hse_3v3(&hse_8mhz_3v3[CLOCK_3V3_168MHZ]);
+    INIT_leds();
 
-	while (1) {
-		PWR_CR |= PWR_CR_LPSDSR;
-		pwr_set_stop_mode();
-		__WFI();
-		reset_clocks();
-		process_state(&state);
-	}
+
+    INIT_gpio(GPIOA, RCC_GPIOA, GPIO0);
+    INIT_isr(GPIOA, EXTI0, NVIC_EXTI0_IRQ);
+
+  /*
+    INIT_gpio(GPIOE, RCC_GPIOE, GPIO0);
+    INIT_isr(GPIOE, EXTI0, NVIC_EXTI0_IRQ);
+    */
+    //DBG_trySetup();
+
+
+    uint16_t pin                = GPIO0;
+    uint8_t irqn                = NVIC_EXTI0_IRQ;
+    uint16_t actPort;
+    while(1)
+    {
+        actPort = GPIOE_IDR;
+        if( actPort & pin ) gpio_set(PLED,LEDBLUE3);
+        else gpio_clear(PLED,LEDBLUE3);
+
+
+        if( nvic_get_pending_irq(irqn) ) gpio_set(PLED,LEDORANGE1);
+        else gpio_clear(PLED,LEDORANGE1);
+
+        gpio_toggle(PLED,LEDRED2);
+        mswait(222);
+    }
 
 	return 0;
 }
+
+
+void DBG_trySetup(void)
+{
+
+/*
+    INIT_gpio(GPIOA, RCC_GPIOA, GPIO0);
+    INIT_isr(GPIOA, EXTI0, NVIC_EXTI0_IRQ);
+*/
+    //SYSCFG_EXTICR
+    uint32_t port               = GPIOE;
+    enum rcc_periph_clken rcc   = RCC_GPIOE;
+    uint16_t pin                = GPIO0;
+    uint8_t irqn                = NVIC_EXTI0_IRQ;
+
+    INIT_gpio(port, rcc, pin);
+    //INIT_isr(GPIOB, EXTI1, NVIC_EXTI1_IRQ);
+
+
+    //____________________________________________________
+	//exti_select_source(exti, port);
+    uint32_t exti = EXTI0; // = 1<<0
+    uint32_t reg = 0; // SYSCFG_EXTICR1 = EXTI3:EXTI0
+    uint8_t shift = 0*4;
+    uint8_t a = 0;
+
+    uint32_t mask;
+    uint32_t bits;
+    // enable all pins of port PE to be the interupts
+    for(a=0;a<4;a++)
+    {
+        reg = a;
+        shift = 4*a;
+        mask = 0x0000000F<<shift; // = in EXTICR1 = EXTI0
+        bits = 0x00000004<<shift; // PE in EXTI0 = PE0
+
+        // lpc43xx\memorymap.h PERIPH_BASE
+        // Table 2.
+        MINE_SYSCFG_EXTICR(reg) = (MINE_SYSCFG_EXTICR(reg) & ~mask) | bits;
+    }
+/*
+0B0000: PA[x] pin = 0x00
+0B0001: PB[x] pin = 0x01
+0B0010: PC[x] pin = 0x02
+0B0011: PD[x] pin = 0x03
+0B0100: PE[x] pin = 0x04
+0B0101: PF[x] pin = 0x05
+0B0110: PG[x] pin = 0x06
+0B0111: PH[x] pin = 0x07
+*/
+
+    exti = EXTI0|EXTI1|EXTI2|EXTI3|EXTI4|EXTI5|EXTI6|EXTI7|EXTI8|EXTI9|EXTI10;
+
+    //____________________________________________________
+	//exti_enable_request(EXTI0); // EMR IMR
+	EXTI_IMR |= exti;
+	EXTI_EMR |= exti;
+
+    //____________________________________________________
+	//exti_set_trigger(exti, EXTI_TRIGGER_BOTH);
+    EXTI_RTSR |= exti; // raising trigger enabled on exti line
+    EXTI_FTSR |= exti; // falling trigger enabled on exti line
+
+    //____________________________________________________
+	//nvic_enable_irq(NVIC_EXTI1_IRQ);
+
+	nvic_enable_irq(NVIC_EXTI0_IRQ);
+	nvic_enable_irq(NVIC_EXTI1_IRQ);
+	nvic_enable_irq(NVIC_EXTI2_IRQ);
+	nvic_enable_irq(NVIC_EXTI3_IRQ);
+	nvic_enable_irq(NVIC_EXTI9_5_IRQ);
+// EXTI1 in NVIC = 0x0000 005C
+/*
+    //uint8_t irqn = 7;
+	NVIC_ISER(irqn / 32) = (1 << (irqn % 32));
+*/
+/*
+	nvic_clear_pending_irq(irqn);
+	nvic_disable_irq(irqn);
+	nvic_enable_irq(irqn);
+*/
+
+//    nvic_set_priority(irqn,10);
+/*
+    // it is enabled
+	if(	nvic_get_irq_enabled(irqn) )
+    {
+        gpio_set(PLED,LEDBLUE3);
+        mswait(222);
+        gpio_clear(PLED,LEDBLUE3);
+    }
+*/
+
+
+}
+
+
+
+void MINE_exti_select_source(uint32_t exti, uint32_t gpioport)
+{
+	uint32_t line;
+	for (line = 0; line < 16; line++) {
+		if (!(exti & (1 << line))) {
+			continue;
+		}
+
+		uint32_t bits = 0, mask = 0x0F;
+
+		switch (gpioport) {
+		case GPIOA:
+			bits = 0;
+			break;
+		case GPIOB:
+			bits = 1;
+			break;
+		case GPIOC:
+			bits = 2;
+			break;
+		case GPIOD:
+			bits = 3;
+			break;
+#if defined(GPIOE) && defined(GPIO_PORT_E_BASE)
+		case GPIOE:
+			bits = 4;
+			break;
+#endif
+#if defined(GPIOF) && defined(GPIO_PORT_F_BASE)
+		case GPIOF:
+			bits = 5;
+			break;
+#endif
+#if defined(GPIOG) && defined(GPIO_PORT_G_BASE)
+		case GPIOG:
+			bits = 6;
+			break;
+#endif
+#if defined(GPIOH) && defined(GPIO_PORT_H_BASE)
+		case GPIOH:
+			bits = 7;
+			break;
+#endif
+#if defined(GPIOI) && defined(GPIO_PORT_I_BASE)
+		case GPIOI:
+			bits = 8;
+			break;
+#endif
+		}
+
+		uint8_t shift = (uint8_t)(4 * (line % 4));
+		uint32_t reg = line / 4;
+		bits <<= shift;
+		mask <<= shift;
+
+#if defined(AFIO_BASE)
+		AFIO_EXTICR(reg) = (AFIO_EXTICR(reg) & ~mask) | bits;
+#else
+        MINE_SYSCFG_EXTICR(reg) = (MINE_SYSCFG_EXTICR(reg) & ~mask) | bits;
+#endif
+	};
+}
+//%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+// EXTERNAL REFERENCES
+
+
+
