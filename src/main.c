@@ -35,7 +35,7 @@
 
 #include <libopencm3/stm32/syscfg.h>
 
-#define SYSCFG_BASE         (0x40013800U)
+//#define SYSCFG_BASE         (0x40013800U)
 
 #define MINE_SYSCFG_EXTICR(i)		MMIO32(SYSCFG_BASE + 0x08 + (i)*4)
 //%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -133,14 +133,16 @@ int main(void)
 	//rcc_clock_setup_hse_3v3(&hse_8mhz_3v3[CLOCK_3V3_168MHZ]);
     INIT_leds();
 
-
     INIT_gpio(GPIOA, RCC_GPIOA, GPIO0);
-    INIT_isr(GPIOA, EXTI0, NVIC_EXTI0_IRQ);
-
-  /*
     INIT_gpio(GPIOE, RCC_GPIOE, GPIO0);
+
+/*
+//functional
+    INIT_isr(GPIOA, EXTI0, NVIC_EXTI0_IRQ);
+*/
+//false hope - setting this enables int on PA0
     INIT_isr(GPIOE, EXTI0, NVIC_EXTI0_IRQ);
-    */
+
     //DBG_trySetup();
 
 
@@ -176,7 +178,7 @@ void DBG_trySetup(void)
     uint32_t port               = GPIOE;
     enum rcc_periph_clken rcc   = RCC_GPIOE;
     uint16_t pin                = GPIO0;
-    uint8_t irqn                = NVIC_EXTI0_IRQ;
+    //uint8_t irqn                = NVIC_EXTI0_IRQ;
 
     INIT_gpio(port, rcc, pin);
     //INIT_isr(GPIOB, EXTI1, NVIC_EXTI1_IRQ);
@@ -272,6 +274,7 @@ void MINE_exti_select_source(uint32_t exti, uint32_t gpioport)
 		uint32_t bits = 0, mask = 0x0F;
 
 		switch (gpioport) {
+		    default:
 		case GPIOA:
 			bits = 0;
 			break;
